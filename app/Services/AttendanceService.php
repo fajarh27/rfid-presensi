@@ -12,6 +12,8 @@ class AttendanceService
     /** Scan ganda dalam rentang detik ini diabaikan. */
     public const DEBOUNCE_SECONDS = 60;
 
+    public const LCD_LINE_LENGTH = 16;
+
     public function record(Device $device, string $uid, ?Carbon $at = null): array
     {
         $at = $at ?? now();
@@ -27,15 +29,21 @@ class AttendanceService
         if (! $employee) {
             Attendance::create([
                 'employee_id' => null,
-                'device_id'   => $device->id,
-                'rfid_uid'    => $uid,
-                'scanned_at'  => $at,
-                'work_date'   => $date,
-                'type'        => 'unknown',
-                'status'      => 'unknown',
+                'device_id' => $device->id,
+                'rfid_uid' => $uid,
+                'scanned_at' => $at,
+                'work_date' => $date,
+                'type' => 'unknown',
+                'status' => 'unknown',
             ]);
 
-            return ['ok' => false, 'code' => 'unregistered', 'message' => 'Kartu belum terdaftar', 'uid' => $uid];
+            return [
+                'ok' => false,
+                'code' => 'unregistered',
+                'message' => 'Kartu belum terdaftar',
+                'uid' => $uid,
+                'lcd' => $this->lcd('KARTU TIDAK', 'TERDAFTAR'),
+            ];
         }
 
         $last = Attendance::where('employee_id', $employee->id)
@@ -48,6 +56,7 @@ class AttendanceService
                 'ok' => true, 'code' => 'duplicate', 'message' => 'Scan ganda diabaikan',
                 'name' => $employee->name, 'type' => $last->type, 'status' => $last->status,
                 'time' => $last->scanned_at->format('H:i:s'),
+                'lcd' => $this->lcd('SCAN DIABAIKAN', $employee->name),
             ];
         }
 
@@ -56,12 +65,12 @@ class AttendanceService
 
         $attendance = Attendance::create([
             'employee_id' => $employee->id,
-            'device_id'   => $device->id,
-            'rfid_uid'    => $uid,
-            'scanned_at'  => $at,
-            'work_date'   => $date,
-            'type'        => $type,
-            'status'      => $status,
+            'device_id' => $device->id,
+            'rfid_uid' => $uid,
+            'scanned_at' => $at,
+            'work_date' => $date,
+            'type' => $type,
+            'status' => $status,
         ]);
 
         return [
@@ -69,7 +78,24 @@ class AttendanceService
             'message' => $type === 'in' ? 'Absen masuk berhasil' : 'Absen pulang berhasil',
             'name' => $employee->name, 'type' => $type, 'status' => $status,
             'time' => $attendance->scanned_at->format('H:i:s'),
+            'lcd' => $this->lcd($type === 'in' ? 'ABSEN MASUK' : 'ABSEN PULANG', $employee->name),
         ];
+    }
+
+    /**
+     * @return array{line1: string, line2: string}
+     */
+    private function lcd(string $line1, string $line2): array
+    {
+        return [
+            'line1' => $this->fitLcdLine($line1),
+            'line2' => $this->fitLcdLine($line2),
+        ];
+    }
+
+    private function fitLcdLine(string $value): string
+    {
+        return mb_strtoupper(mb_substr(trim($value), 0, self::LCD_LINE_LENGTH));
     }
 
     private function resolveStatus(Employee $employee, string $type, Carbon $at, string $date): string
